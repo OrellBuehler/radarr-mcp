@@ -1,0 +1,349 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { registerCommandTools, COMMANDS } from "../tools/commands.js";
+import { registerFileTools } from "../tools/files.js";
+import { registerSettingsTools } from "../tools/settings.js";
+import { registerProviderTools } from "../tools/providers.js";
+import { registerLibraryTools } from "../tools/library.js";
+import { registerSystemTools } from "../tools/system.js";
+import { RadarrClient } from "../radarr/client.js";
+
+type ToolHandler = (args: any) => Promise<{ content: { text: string }[]; isError?: boolean }>;
+
+function collectTools() {
+  const tools = new Map<string, ToolHandler>();
+  const server = {
+    tool: (name: string, _desc: string, _schema: unknown, handler: ToolHandler) => {
+      tools.set(name, handler);
+    },
+  };
+  const client = new RadarrClient("http://radarr:7878", "key");
+  registerCommandTools(server as any, client);
+  registerFileTools(server as any, client);
+  registerSettingsTools(server as any, client);
+  registerProviderTools(server as any, client);
+  registerLibraryTools(server as any, client);
+  registerSystemTools(server as any, client);
+  return tools;
+}
+
+const tools = collectTools();
+
+function mockJson(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  };
+}
+
+describe("command tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keeps restart, shutdown and log deletion out of the allowlist", () => {
+    for (const name of ["Restart", "Shutdown", "DeleteLogFiles", "DeleteUpdateLogFiles"]) {
+      expect(COMMANDS as readonly string[]).not.toContain(name);
+    }
+  });
+
+  it("run_command posts the name with movieIds", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({ id: 7, name: "MoviesSearch", status: "queued" }));
+    const res = await tools.get("run_command")!({ name: "MoviesSearch", movie_ids: [1, 2] });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://radarr:7878/api/v3/command");
+    expect(JSON.parse(init.body)).toEqual({ name: "MoviesSearch", movieIds: [1, 2] });
+    expect(JSON.parse(res.content[0].text).id).toBe(7);
+  });
+
+  it("run_command adds the singular movieId for the commands that need it and merges params", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("run_command")!({
+      name: "RenameFiles",
+      movie_ids: [3],
+      params: { files: [9] },
+    });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({
+      name: "RenameFiles",
+      files: [9],
+      movieIds: [3],
+      movieId: 3,
+    });
+  });
+});
+
+describe("file tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("list_movie_files flattens quality, languages and media info", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 1,
+          movieId: 2,
+          relativePath: "Dune.mkv",
+          quality: { quality: { name: "WEBDL-2160p" } },
+          languages: [{ id: 1, name: "English" }],
+          mediaInfo: { resolution: "3840x2160", videoCodec: "x265", audioChannels: 8 },
+        },
+      ]),
+    );
+    const res = await tools.get("list_movie_files")!({ movie_ids: [2] });
+    expect(mockFetch.mock.calls[0][0]).toBe("http://radarr:7878/api/v3/moviefile?movieId=2");
+    const file = JSON.parse(res.content[0].text).files[0];
+    expect(file).toMatchObject({
+      quality: "WEBDL-2160p",
+      languages: ["English"],
+      resolution: "3840x2160",
+    });
+    expect(file).not.toHaveProperty("mediaInfo");
+  });
+
+  it("delete_movie_files uses the bulk endpoint for several ids", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("delete_movie_files")!({ ids: [1, 2] });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://radarr:7878/api/v3/moviefile/bulk");
+    expect(JSON.parse(init.body)).toEqual({ movieFileIds: [1, 2] });
+  });
+
+  it("list_manual_import_candidates filters existing files by default", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 1,
+          path: "/downloads/dune/file.mkv",
+          movie: { id: 2, title: "Dune", year: 2021 },
+          rejections: [{ reason: "Unknown movie" }],
+        },
+      ]),
+    );
+    const res = await tools.get("list_manual_import_candidates")!({ download_id: "abc" });
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "http://radarr:7878/api/v3/manualimport?downloadId=abc&filterExistingFiles=true",
+    );
+    const file = JSON.parse(res.content[0].text).files[0];
+    expect(file.movie).toBe("Dune (2021)");
+    expect(file.rejections).toEqual(["Unknown movie"]);
+  });
+});
+
+describe("settings tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("list_quality_profiles resolves the cutoff to its quality name", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 4,
+          name: "HD",
+          cutoff: 7,
+          upgradeAllowed: true,
+          items: [
+            { allowed: true, quality: { id: 7, name: "Bluray-1080p" } },
+            { allowed: false, quality: { id: 3, name: "WEBDL-480p" } },
+          ],
+        },
+      ]),
+    );
+    const res = await tools.get("list_quality_profiles")!({});
+    expect(JSON.parse(res.content[0].text).profiles[0]).toEqual({
+      id: 4,
+      name: "HD",
+      upgradeAllowed: true,
+      cutoff: "Bluray-1080p",
+      allowedQualities: ["Bluray-1080p"],
+    });
+  });
+
+  it("list_tags switches to the detail endpoint", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson([]));
+    await tools.get("list_tags")!({ details: true });
+    expect(mockFetch.mock.calls[0][0]).toBe("http://radarr:7878/api/v3/tag/detail");
+  });
+
+  it("get_config maps sections to their endpoints", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("get_config")!({ section: "mediamanagement" });
+    expect(mockFetch.mock.calls[0][0]).toBe("http://radarr:7878/api/v3/config/mediamanagement");
+  });
+});
+
+describe("provider tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("list_indexers redacts secret fields and flattens the rest", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 1,
+          name: "NZBgeek",
+          implementation: "Newznab",
+          protocol: "usenet",
+          priority: 25,
+          enableRss: true,
+          fields: [
+            { name: "baseUrl", value: "https://api.nzbgeek.info" },
+            { name: "apiKey", value: "supersecret", privacy: "apiKey" },
+            { name: "vipExpiration", value: "" },
+          ],
+        },
+      ]),
+    );
+    const res = await tools.get("list_indexers")!({});
+    const indexer = JSON.parse(res.content[0].text).indexers[0];
+    expect(indexer.fields).toEqual({
+      baseUrl: "https://api.nzbgeek.info",
+      apiKey: "<redacted>",
+    });
+    expect(indexer).toMatchObject({ protocol: "usenet", priority: 25, enableRss: true });
+  });
+
+  it("test_indexers tests all without an id and posts the provider with one", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("test_indexers")!({});
+    expect(mockFetch.mock.calls[0][0]).toBe("http://radarr:7878/api/v3/indexer/testall");
+
+    mockFetch.mockResolvedValueOnce(mockJson({ id: 2, name: "x" }));
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("test_indexers")!({ id: 2 });
+    expect(mockFetch.mock.calls[1][0]).toBe("http://radarr:7878/api/v3/indexer/2");
+    const [url, init] = mockFetch.mock.calls[2];
+    expect(url).toBe("http://radarr:7878/api/v3/indexer/test");
+    expect(JSON.parse(init.body)).toEqual({ id: 2, name: "x" });
+  });
+
+  it("discover_movies passes the feed toggles through", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson([{ title: "Dune", tmdbId: 1, isExisting: false }]));
+    await tools.get("discover_movies")!({ include_trending: true, limit: 1 });
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "http://radarr:7878/api/v3/importlist/movie?includeTrending=true",
+    );
+  });
+});
+
+describe("library tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("list_collections omits the movie list unless asked", async () => {
+    const collection = {
+      id: 1,
+      title: "Dune Collection",
+      tmdbId: 726871,
+      monitored: true,
+      missingMovies: 1,
+      movies: [{ tmdbId: 438631, title: "Dune", year: 2021, isExisting: true }],
+    };
+    mockFetch.mockResolvedValueOnce(mockJson([collection]));
+    let payload = JSON.parse((await tools.get("list_collections")!({})).content[0].text);
+    expect(payload.collections[0].movieCount).toBe(1);
+    expect(payload.collections[0]).not.toHaveProperty("movies");
+
+    mockFetch.mockResolvedValueOnce(mockJson([collection]));
+    payload = JSON.parse(
+      (await tools.get("list_collections")!({ include_movies: true })).content[0].text,
+    );
+    expect(payload.collections[0].movies[0].title).toBe("Dune");
+  });
+
+  it("update_collections sends only the given fields", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson([]));
+    await tools.get("update_collections")!({ collection_ids: [1], monitored: true });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://radarr:7878/api/v3/collection");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ collectionIds: [1], monitored: true });
+  });
+
+  it("add_exclusion posts the tmdb identity", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("add_exclusion")!({ tmdb_id: 1, movie_title: "Dune", movie_year: 2021 });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({
+      tmdbId: 1,
+      movieTitle: "Dune",
+      movieYear: 2021,
+    });
+  });
+});
+
+describe("system tools", () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("get_health counts the issues", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson([{ source: "IndexerCheck", type: "warning" }]));
+    const res = await tools.get("get_health")!({});
+    expect(JSON.parse(res.content[0].text).count).toBe(1);
+  });
+
+  it("get_logs defaults to newest first and trims the records", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson({
+        page: 1,
+        pageSize: 20,
+        totalRecords: 1,
+        records: [{ id: 1, time: "t", level: "error", logger: "l", message: "m", method: "x" }],
+      }),
+    );
+    const res = await tools.get("get_logs")!({ level: "error" });
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("level=error");
+    expect(url).toContain("sortDirection=descending");
+    const record = JSON.parse(res.content[0].text).records[0];
+    expect(record.message).toBe("m");
+    expect(record).not.toHaveProperty("method");
+  });
+});
