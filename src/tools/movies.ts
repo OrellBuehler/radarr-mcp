@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, buildQS, summarizeMovie, summarizeLookup, type Movie } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, READ, UPDATE, WRITE } from "./annotations.js";
 
 const MOVIE_STATUS = ["tba", "announced", "inCinemas", "released", "deleted"] as const;
 const MONITOR_TYPES = ["movieOnly", "movieAndCollection", "none"] as const;
@@ -28,6 +29,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
       tag_id: z.number().int().optional().describe("Only movies carrying this tag id"),
       limit: z.number().int().min(1).optional().describe("Return at most this many movies"),
     },
+    READ,
     async ({ search, monitored, has_file, quality_profile_id, tag_id, limit }) => {
       try {
         const movies = (await client.fetch("/api/v3/movie?excludeLocalCovers=true")) as (Movie & {
@@ -60,6 +62,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
     "get_movie",
     "Get the full record for one movie in the library: file details, ratings, images, availability, statistics and add options.",
     { id: z.number().int().describe("Radarr movie id (not the TMDB id)") },
+    READ,
     async ({ id }) => {
       try {
         return ok(await client.fetch(`/api/v3/movie/${id}`));
@@ -77,6 +80,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
       imdb_id: z.string().optional().describe("IMDB id, e.g. 'tt1856101'"),
       tmdb_id: z.number().int().optional().describe("TMDB id, e.g. 335984"),
     },
+    READ,
     async ({ term, imdb_id, tmdb_id }) => {
       try {
         if (tmdb_id !== undefined) {
@@ -127,6 +131,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
         .describe("Immediately run an indexer search after adding (default true)"),
       tags: z.array(z.number().int()).optional().describe("Tag ids to apply"),
     },
+    WRITE,
     async ({
       tmdb_id,
       root_folder_path,
@@ -177,6 +182,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Move existing files to the new location (default false)"),
     },
+    UPDATE,
     async ({
       id,
       monitored,
@@ -226,6 +232,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Add the movie to the import list exclusions (default false)"),
     },
+    DESTRUCTIVE,
     async ({ id, delete_files, add_import_exclusion }) => {
       try {
         return ok(
@@ -262,6 +269,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Move files when changing the root folder (default false)"),
     },
+    UPDATE,
     async ({
       movie_ids,
       monitored,
@@ -305,6 +313,7 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Add them to the import list exclusions (default false)"),
     },
+    DESTRUCTIVE,
     async ({ movie_ids, delete_files, add_import_exclusion }) => {
       try {
         return ok(

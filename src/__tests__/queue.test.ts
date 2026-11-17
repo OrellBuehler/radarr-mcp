@@ -8,7 +8,13 @@ type ToolHandler = (args: any) => Promise<{ content: { text: string }[]; isError
 function collectTools() {
   const tools = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _desc: string, _schema: unknown, handler: ToolHandler) => {
+    tool: (
+      name: string,
+      _desc: string,
+      _schema: unknown,
+      _annotations: unknown,
+      handler: ToolHandler,
+    ) => {
       tools.set(name, handler);
     },
   };
@@ -76,7 +82,7 @@ describe("queue tools", () => {
     await tools.get("remove_queue_items")!({ ids: [5], blocklist: true });
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe(
-      "http://radarr:7878/api/v3/queue/5?removeFromClient=true&blocklist=true&skipRedownload=false",
+      "http://radarr:7878/api/v3/queue/5?removeFromClient=false&blocklist=true&skipRedownload=false",
     );
     expect(init.method).toBe("DELETE");
     expect(init.body).toBeUndefined();
@@ -86,9 +92,19 @@ describe("queue tools", () => {
     mockFetch.mockResolvedValueOnce(mockJson({}));
     await tools.get("remove_queue_items")!({ ids: [5, 6] });
     const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toContain("/api/v3/queue/bulk?");
+    expect(url).toBe(
+      "http://radarr:7878/api/v3/queue/bulk?removeFromClient=false&blocklist=false&skipRedownload=false",
+    );
     expect(init.method).toBe("DELETE");
     expect(JSON.parse(init.body)).toEqual({ ids: [5, 6] });
+  });
+
+  it("remove_queue_items only removes from the download client when asked", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("remove_queue_items")!({ ids: [5], remove_from_client: true });
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      "http://radarr:7878/api/v3/queue/5?removeFromClient=true&blocklist=false&skipRedownload=false",
+    );
   });
 
   it("grab_queue_items posts to the bulk grab endpoint for several ids", async () => {
@@ -127,9 +143,13 @@ describe("release tools", () => {
   });
 
   it("grab_release posts guid and indexer id, and overrides only when a movie is given", async () => {
-    mockFetch.mockResolvedValueOnce(mockJson({}));
-    await tools.get("grab_release")!({ guid: "g", indexer_id: 2 });
+    mockFetch.mockResolvedValueOnce(
+      mockJson({ guid: "g", title: "Dune", downloadUrl: "https://indexer.example/dl?apikey=k1" }),
+    );
+    const res = await tools.get("grab_release")!({ guid: "g", indexer_id: 2 });
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ guid: "g", indexerId: 2 });
+    expect(res.content[0].text).not.toContain("k1");
+    expect(JSON.parse(res.content[0].text)).toMatchObject({ guid: "g", title: "Dune" });
 
     mockFetch.mockResolvedValueOnce(mockJson({}));
     await tools.get("grab_release")!({ guid: "g", indexer_id: 2, movie_id: 4 });

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, buildQS, summarizeRelease, type Release } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { READ, WRITE } from "./annotations.js";
 
 export function registerReleaseTools(server: McpServer, client: RadarrClient) {
   server.tool(
@@ -15,6 +16,7 @@ export function registerReleaseTools(server: McpServer, client: RadarrClient) {
         .describe("Include releases Radarr rejected, with the reasons (default true)"),
       limit: z.number().int().min(1).optional().describe("Return at most this many releases"),
     },
+    READ,
     async ({ movie_id, include_rejected, limit }) => {
       try {
         const releases = (await client.fetch(
@@ -43,6 +45,7 @@ export function registerReleaseTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Movie id to import the release as (for releases Radarr could not map)"),
     },
+    WRITE,
     async ({ guid, indexer_id, movie_id }) => {
       try {
         const body = {
@@ -50,7 +53,9 @@ export function registerReleaseTools(server: McpServer, client: RadarrClient) {
           indexerId: indexer_id,
           ...(movie_id !== undefined ? { movieId: movie_id, shouldOverride: true } : {}),
         };
-        return ok(await client.json("/api/v3/release", "POST", body));
+        return ok(
+          summarizeRelease((await client.json("/api/v3/release", "POST", body)) as Release),
+        );
       } catch (e) {
         return err(e);
       }
@@ -61,6 +66,7 @@ export function registerReleaseTools(server: McpServer, client: RadarrClient) {
     "parse_release_title",
     "Ask Radarr to parse a release title: which movie, quality, languages, edition, release group and custom formats it maps to. Useful for diagnosing why a release is rejected or misidentified.",
     { title: z.string().describe("Release title, e.g. 'Movie.Name.2019.2160p.UHD.BluRay-GROUP'") },
+    READ,
     async ({ title }) => {
       try {
         return ok(await client.fetch(`/api/v3/parse${buildQS({ title })}`));

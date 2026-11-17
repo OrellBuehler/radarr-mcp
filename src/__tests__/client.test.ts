@@ -66,6 +66,18 @@ describe("RadarrClient", () => {
     );
   });
 
+  it("refuses to follow redirects so the API key stays on the configured host", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    const client = new RadarrClient("http://radarr.local:7878", "secret");
+    await client.fetch("/api/v3/movie", { redirect: "follow" });
+    expect(mockFetch.mock.calls[0][1].redirect).toBe("error");
+
+    mockFetch.mockRejectedValueOnce(
+      new TypeError("fetch failed", { cause: new Error("unexpected redirect") }),
+    );
+    await expect(client.fetch("/api/v3/movie")).rejects.toThrow(/redirect, which is not followed/);
+  });
+
   it("returns a success marker for empty bodies", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

@@ -24,10 +24,17 @@ export class RadarrClient {
         ...options,
         headers: this.headers(options),
         signal: options.signal ?? AbortSignal.timeout(this.timeoutMs),
+        redirect: "error",
       });
     } catch (e) {
       if (e instanceof DOMException && e.name === "TimeoutError") {
         throw new Error(`Radarr request timed out after ${this.timeoutMs}ms`, { cause: e });
+      }
+      if (e instanceof TypeError && /redirect/i.test(String((e.cause as Error)?.message))) {
+        throw new Error(
+          "Radarr answered with a redirect, which is not followed so the API key never leaves the configured host. Point RADARR_URL at the final URL.",
+          { cause: e },
+        );
       }
       throw e;
     }

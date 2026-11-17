@@ -12,7 +12,13 @@ type ToolHandler = (args: any) => Promise<{ content: { text: string }[]; isError
 function collectTools() {
   const tools = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _desc: string, _schema: unknown, handler: ToolHandler) => {
+    tool: (
+      name: string,
+      _desc: string,
+      _schema: unknown,
+      _annotations: unknown,
+      handler: ToolHandler,
+    ) => {
       tools.set(name, handler);
     },
   };
@@ -78,6 +84,17 @@ describe("command tools", () => {
       movieIds: [3],
       movieId: 3,
     });
+  });
+
+  it("run_command never lets params override the allowlisted name", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({}));
+    await tools.get("run_command")!({
+      name: "RssSync",
+      params: { name: "ResetApiKey", Name: "Restart", commandName: "Shutdown", files: [1] },
+    });
+    const raw = mockFetch.mock.calls[0][1].body as string;
+    expect(JSON.parse(raw)).toEqual({ files: [1], name: "RssSync" });
+    expect(raw).not.toMatch(/ResetApiKey|Restart|Shutdown/);
   });
 });
 
@@ -194,6 +211,55 @@ describe("settings tools", () => {
     await tools.get("get_config")!({ section: "mediamanagement" });
     expect(mockFetch.mock.calls[0][0]).toBe("http://radarr:7878/api/v3/config/mediamanagement");
   });
+
+  it("get_config redacts the API key and passwords of the host section", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson({
+        id: 1,
+        port: 7878,
+        authenticationMethod: "forms",
+        username: "admin",
+        password: "hunter2",
+        passwordConfirmation: "hunter2",
+        apiKey: "0123456789abcdef0123456789abcdef",
+        sslCertPath: "/config/cert.pfx",
+        sslCertPassword: "certpass",
+        proxyHostname: "proxy.local",
+        proxyUsername: "proxyuser",
+        proxyPassword: "proxypass",
+        applicationUrl: "https://user:pw@media.example.com/radarr",
+        urlBase: "",
+      }),
+    );
+    const res = await tools.get("get_config")!({ section: "host" });
+    const text = res.content[0].text;
+    for (const secret of [
+      "hunter2",
+      "0123456789abcdef0123456789abcdef",
+      "certpass",
+      "proxyuser",
+      "proxypass",
+      "user:pw",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(JSON.parse(text)).toEqual({
+      id: 1,
+      port: 7878,
+      authenticationMethod: "forms",
+      username: "<redacted>",
+      password: "<redacted>",
+      passwordConfirmation: "<redacted>",
+      apiKey: "<redacted>",
+      sslCertPath: "/config/cert.pfx",
+      sslCertPassword: "<redacted>",
+      proxyHostname: "proxy.local",
+      proxyUsername: "<redacted>",
+      proxyPassword: "<redacted>",
+      applicationUrl: "https://<redacted>@media.example.com/radarr",
+      urlBase: "",
+    });
+  });
 });
 
 describe("provider tools", () => {
@@ -233,6 +299,83 @@ describe("provider tools", () => {
       apiKey: "<redacted>",
     });
     expect(indexer).toMatchObject({ protocol: "usenet", priority: 25, enableRss: true });
+  });
+
+  it("list_indexers redacts passkeys, cookies and credentials embedded in URLs", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 2,
+          name: "Tracker",
+          implementation: "TorrentRssIndexer",
+          fields: [
+            { name: "baseUrl", value: "https://tracker.example/rss?passkey=abc123&cat=movies" },
+            { name: "feedUrl", value: "https://bob:pw@tracker.example/feed?apikey=k1&token=t1" },
+            {
+              name: "rssUrl",
+              value: "https://tracker.example/rss/0123456789abcdef0123456789abcdef/movies",
+            },
+            { name: "passkey", value: "abc123" },
+            { name: "rssPasskey", value: "def456" },
+            { name: "cookie", value: "uid=1; pass=xyz" },
+            { name: "minimumSeeders", value: 1 },
+          ],
+        },
+      ]),
+    );
+    const res = await tools.get("list_indexers")!({});
+    const text = res.content[0].text;
+    for (const secret of [
+      "abc123",
+      "def456",
+      "bob",
+      "pw@",
+      "k1",
+      "t1",
+      "xyz",
+      "0123456789abcdef",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(JSON.parse(text).indexers[0].fields).toEqual({
+      baseUrl: "https://tracker.example/rss?passkey=<redacted>&cat=movies",
+      feedUrl: "https://<redacted>@tracker.example/feed?apikey=<redacted>&token=<redacted>",
+      rssUrl: "https://tracker.example/rss/<redacted>/movies",
+      passkey: "<redacted>",
+      rssPasskey: "<redacted>",
+      cookie: "<redacted>",
+      minimumSeeders: 1,
+    });
+  });
+
+  it("list_notifications redacts webhook URLs down to their origin", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJson([
+        {
+          id: 3,
+          name: "Discord",
+          implementation: "Discord",
+          onGrab: true,
+          fields: [
+            { name: "webHookUrl", value: "https://discord.com/api/webhooks/1/abcDEF" },
+            { name: "url", value: "https://hooks.example.com/services/T0/B0/xyz" },
+            { name: "host", value: "https://plex.local:32400" },
+            { name: "headers", value: [{ key: "Authorization", value: "Bearer s3cr3t" }] },
+            { name: "username", value: "Radarr" },
+          ],
+        },
+      ]),
+    );
+    const res = await tools.get("list_notifications")!({});
+    const text = res.content[0].text;
+    for (const secret of ["abcDEF", "services/T0", "s3cr3t"]) expect(text).not.toContain(secret);
+    expect(JSON.parse(text).notifications[0].fields).toEqual({
+      webHookUrl: "<redacted>",
+      url: "https://hooks.example.com/<redacted>",
+      host: "https://plex.local:32400",
+      headers: "<redacted>",
+      username: "<redacted>",
+    });
   });
 
   it("test_indexers tests all without an id and posts the provider with one", async () => {

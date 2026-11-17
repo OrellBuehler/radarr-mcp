@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err } from "../radarr/format.js";
+import { ok, err, redactSecrets } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, READ, UPDATE, WRITE } from "./annotations.js";
 
 export const CONFIG_SECTIONS = {
   naming: "/api/v3/config/naming",
@@ -47,6 +48,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "list_quality_profiles",
     "List quality profiles with their cutoff and allowed qualities. add_movie and update_movie need one of these ids.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/qualityprofile")) as QualityProfile[];
@@ -61,6 +63,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "get_quality_profile",
     "Get one quality profile in full, including every quality item and custom format score.",
     { id: z.number().int().describe("Quality profile id") },
+    READ,
     async ({ id }) => {
       try {
         return ok(await client.fetch(`/api/v3/qualityprofile/${id}`));
@@ -74,6 +77,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "list_root_folders",
     "List root folders with free space and whether Radarr can reach them. add_movie needs one of these paths.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/rootfolder")) as {
@@ -108,6 +112,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Include what each tag is attached to (default false)"),
     },
+    READ,
     async ({ details }) => {
       try {
         const rows = (await client.fetch(
@@ -124,6 +129,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "create_tag",
     "Create a tag. Tags drive delay profiles, release profiles, import list and notification targeting.",
     { label: z.string().describe("Tag label, e.g. '4k' or 'kids'") },
+    WRITE,
     async ({ label }) => {
       try {
         return ok(await client.json("/api/v3/tag", "POST", { label }));
@@ -137,6 +143,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "update_tag",
     "Rename an existing tag. Everything tagged with it keeps the association.",
     { id: z.number().int().describe("Tag id"), label: z.string().describe("New label") },
+    UPDATE,
     async ({ id, label }) => {
       try {
         return ok(await client.json(`/api/v3/tag/${id}`, "PUT", { id, label }));
@@ -150,6 +157,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "delete_tag",
     "Delete a tag and remove it from everything using it. Check list_tags with details first.",
     { id: z.number().int().describe("Tag id") },
+    DESTRUCTIVE,
     async ({ id }) => {
       try {
         return ok(await client.fetch(`/api/v3/tag/${id}`, { method: "DELETE" }));
@@ -163,6 +171,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "list_custom_formats",
     "List custom formats with their specifications. Their scores per quality profile decide which releases Radarr prefers.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/customformat")) as unknown[];
@@ -177,6 +186,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "list_quality_definitions",
     "List quality definitions with their size limits in MB/minute. These are what reject a release as too small or too large.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/qualitydefinition")) as {
@@ -211,6 +221,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "list_languages",
     "List the languages Radarr knows, with the ids used in profiles and release filters.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/language")) as unknown[];
@@ -223,15 +234,17 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
 
   server.tool(
     "get_config",
-    `Read a Radarr settings section. Sections: ${Object.keys(CONFIG_SECTIONS).join(", ")}. 'naming' is the file/folder naming format, 'mediamanagement' covers import behaviour, permissions and root folder handling.`,
+    `Read a Radarr settings section. Sections: ${Object.keys(CONFIG_SECTIONS).join(", ")}. 'naming' is the file/folder naming format, 'mediamanagement' covers import behaviour, permissions and root folder handling. API keys, usernames and passwords (the 'host' section carries Radarr's own) are redacted.`,
     {
       section: z
         .enum(Object.keys(CONFIG_SECTIONS) as [string, ...string[]])
         .describe("Settings section to read"),
     },
+    READ,
     async ({ section }) => {
       try {
-        return ok(await client.fetch(CONFIG_SECTIONS[section as keyof typeof CONFIG_SECTIONS]));
+        const config = await client.fetch(CONFIG_SECTIONS[section as keyof typeof CONFIG_SECTIONS]);
+        return ok(redactSecrets(config as Record<string, unknown>));
       } catch (e) {
         return err(e);
       }
@@ -242,6 +255,7 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
     "get_naming_examples",
     "Render example file and folder names for the current naming configuration. Use it to sanity-check a naming format before adopting it.",
     {},
+    READ,
     async () => {
       try {
         return ok(await client.fetch("/api/v3/config/naming/examples"));

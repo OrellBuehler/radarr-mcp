@@ -8,6 +8,8 @@ import {
   summarizeQueueItem,
   summarizeRelease,
   summarizePaged,
+  redactUrl,
+  redactSecrets,
 } from "../radarr/format.js";
 
 describe("buildQS", () => {
@@ -99,5 +101,44 @@ describe("summarizers", () => {
     expect(
       summarizePaged({ page: 2, pageSize: 10, totalRecords: 40, records: [1, 2] }, (n) => n * 2),
     ).toEqual({ page: 2, pageSize: 10, totalRecords: 40, records: [2, 4] });
+  });
+});
+
+describe("redactUrl", () => {
+  it("leaves plain URLs and non-URL strings alone", () => {
+    expect(redactUrl("https://api.nzbgeek.info")).toBe("https://api.nzbgeek.info");
+    expect(redactUrl("http://radarr.local:7878/radarr?cat=2000")).toBe(
+      "http://radarr.local:7878/radarr?cat=2000",
+    );
+    expect(redactUrl("movies-4k")).toBe("movies-4k");
+  });
+
+  it("strips userinfo, secret query parameters and key-like path segments", () => {
+    expect(redactUrl("https://u:p@host/x?rsskey=1&torrent_pass=2&q=dune&authkey=3")).toBe(
+      "https://<redacted>@host/x?rsskey=<redacted>&torrent_pass=<redacted>&q=dune&authkey=<redacted>",
+    );
+    expect(redactUrl("https://host/feed/abcdefghijklmnopqrstuvwxyz012345")).toBe(
+      "https://host/feed/<redacted>",
+    );
+  });
+});
+
+describe("redactSecrets", () => {
+  it("redacts by key name, keeps empty values and recurses", () => {
+    expect(
+      redactSecrets({
+        apiKey: "k",
+        password: "",
+        nested: { accessToken: "t", name: "n" },
+        list: ["https://a:b@h/"],
+        port: 1,
+      }),
+    ).toEqual({
+      apiKey: "<redacted>",
+      password: "",
+      nested: { accessToken: "<redacted>", name: "n" },
+      list: ["https://<redacted>@h/"],
+      port: 1,
+    });
   });
 });

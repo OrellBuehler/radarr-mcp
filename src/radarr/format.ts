@@ -24,6 +24,38 @@ export function err(e: unknown) {
   return { content: [{ type: "text" as const, text: String(e) }], isError: true as const };
 }
 
+export const REDACTED = "<redacted>";
+
+export const SECRET =
+  /api_?key|user_?key|pass_?key|rss_?key|password|token|secret|cookie|rpcpath|user_?name|web_?hook|signature|credential|authorization|headers|stateless/i;
+
+const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^/?#@\s]+@/gi;
+const URL_SECRET_PARAM =
+  /([?&;][^=&#;\s]*(?:key|pass|token|secret|auth|sig|cookie|credential)[^=&#;\s]*=)[^&#;\s]*/gi;
+const URL_SECRET_SEGMENT = /(:\/\/[^?#\s]*?\/)[A-Za-z0-9_-]{24,}(?=[/?#]|$)/g;
+
+export function redactUrl(value: string): string {
+  return value
+    .replace(URL_USERINFO, `$1${REDACTED}@`)
+    .replace(URL_SECRET_PARAM, `$1${REDACTED}`)
+    .replace(URL_SECRET_SEGMENT, `$1${REDACTED}`);
+}
+
+export function redactValue(name: string, value: unknown): unknown {
+  if (value === undefined || value === null || value === "") return value;
+  if (SECRET.test(name)) return REDACTED;
+  if (typeof value === "string") return redactUrl(value);
+  if (Array.isArray(value)) return value.map((item) => redactValue(name, item));
+  if (typeof value === "object") return redactSecrets(value as Record<string, unknown>);
+  return value;
+}
+
+export function redactSecrets(record: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) out[key] = redactValue(key, value);
+  return out;
+}
+
 export interface Movie {
   id?: number;
   title?: string;

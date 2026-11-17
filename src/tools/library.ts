@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, buildQS } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, READ, UPDATE, WRITE } from "./annotations.js";
 
 const MOVIE_STATUS = ["tba", "announced", "inCinemas", "released", "deleted"] as const;
 
@@ -29,6 +30,7 @@ export function registerLibraryTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Include each collection's movie list (default false)"),
     },
+    READ,
     async ({ include_movies }) => {
       try {
         const rows = (await client.fetch("/api/v3/collection")) as Collection[];
@@ -80,6 +82,7 @@ export function registerLibraryTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Minimum availability for added movies"),
     },
+    UPDATE,
     async ({
       collection_ids,
       monitored,
@@ -117,6 +120,7 @@ export function registerLibraryTools(server: McpServer, client: RadarrClient) {
       sort_key: z.string().optional().describe("Sort field, e.g. 'movieTitle'"),
       sort_direction: z.enum(["default", "ascending", "descending"]).optional(),
     },
+    READ,
     async ({ page, page_size, sort_key, sort_direction }) => {
       try {
         const qs = buildQS({
@@ -140,6 +144,7 @@ export function registerLibraryTools(server: McpServer, client: RadarrClient) {
       movie_title: z.string().describe("Movie title, shown in the exclusions list"),
       movie_year: z.number().int().describe("Movie year"),
     },
+    WRITE,
     async ({ tmdb_id, movie_title, movie_year }) => {
       try {
         return ok(
@@ -159,6 +164,7 @@ export function registerLibraryTools(server: McpServer, client: RadarrClient) {
     "remove_exclusions",
     "Remove import list exclusions so lists may add those movies again.",
     { ids: z.array(z.number().int()).min(1).describe("Exclusion ids (from list_exclusions)") },
+    DESTRUCTIVE,
     async ({ ids }) => {
       try {
         if (ids.length === 1) {

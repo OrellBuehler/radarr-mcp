@@ -2,12 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, buildQS, summarizePaged, type Paged } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { READ } from "./annotations.js";
 
 export function registerSystemTools(server: McpServer, client: RadarrClient) {
   server.tool(
     "get_system_status",
     "Get version, branch, runtime, database, install path and package details. Also serves as a connectivity and API key check.",
     {},
+    READ,
     async () => {
       try {
         return ok(await client.fetch("/api/v3/system/status"));
@@ -21,6 +23,7 @@ export function registerSystemTools(server: McpServer, client: RadarrClient) {
     "get_health",
     "List active health check warnings and errors with the wiki link explaining each one. Empty means Radarr considers itself healthy.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/health")) as unknown[];
@@ -35,6 +38,7 @@ export function registerSystemTools(server: McpServer, client: RadarrClient) {
     "get_disk_space",
     "List free and total space for every drive Radarr can see, including the root folders.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/diskspace")) as unknown[];
@@ -49,6 +53,7 @@ export function registerSystemTools(server: McpServer, client: RadarrClient) {
     "list_tasks",
     "List scheduled tasks with their interval, last execution and next run. Shows whether RSS sync, refresh and housekeeping are actually running.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/system/task")) as unknown[];
@@ -63,6 +68,7 @@ export function registerSystemTools(server: McpServer, client: RadarrClient) {
     "get_updates",
     "List available Radarr updates with their version, release date and changelog.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/update")) as unknown[];
@@ -85,6 +91,7 @@ export function registerSystemTools(server: McpServer, client: RadarrClient) {
         .describe("Only entries at this level"),
       sort_direction: z.enum(["default", "ascending", "descending"]).optional(),
     },
+    READ,
     async ({ page, page_size, level, sort_direction }) => {
       try {
         const qs = buildQS({
