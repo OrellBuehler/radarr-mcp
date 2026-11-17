@@ -1,6 +1,6 @@
 {
   "name": "@orellbuehler/radarr-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for Radarr: library management, searches, queue, calendar, history and configuration for AI agents.",
   "type": "module",
   "bin": {

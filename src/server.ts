@@ -12,7 +12,7 @@ import { registerLibraryTools } from "./tools/library.js";
 import { registerSystemTools } from "./tools/system.js";
 
 export function createServer(client: RadarrClient): McpServer {
-  const server = new McpServer({ name: "radarr-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "radarr-mcp", version: "0.2.0" });
   registerMovieTools(server, client);
   registerFileTools(server, client);
   registerQueueTools(server, client);
