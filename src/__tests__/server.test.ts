@@ -14,4 +14,33 @@ describe("createServer", () => {
       expect(names).toContain(expected);
     }
   });
+
+  it("annotates every tool with read-only and destructive hints", () => {
+    const server = createServer(new RadarrClient("http://radarr:7878", "key")) as any;
+    const tools = Object.entries(server._registeredTools) as [string, any][];
+    expect(tools.length).toBeGreaterThan(30);
+    for (const [name, tool] of tools) {
+      expect(typeof tool.annotations?.readOnlyHint, name).toBe("boolean");
+      if (!tool.annotations.readOnlyHint) {
+        expect(typeof tool.annotations.destructiveHint, name).toBe("boolean");
+        expect(typeof tool.annotations.idempotentHint, name).toBe("boolean");
+      }
+      expect(tool.annotations.readOnlyHint, name).toBe(
+        /^(get|list|search|lookup|parse|test|discover)_/.test(name),
+      );
+    }
+    for (const name of [
+      "delete_movie",
+      "delete_movies",
+      "delete_movie_files",
+      "remove_queue_items",
+      "remove_blocklist_items",
+      "remove_exclusions",
+      "delete_tag",
+      "mark_history_failed",
+      "run_command",
+    ]) {
+      expect(server._registeredTools[name].annotations.destructiveHint, name).toBe(true);
+    }
+  });
 });

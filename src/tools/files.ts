@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, buildQS } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, READ } from "./annotations.js";
 
 interface MovieFile {
   id?: number;
@@ -49,6 +50,7 @@ export function registerFileTools(server: McpServer, client: RadarrClient) {
       movie_ids: z.array(z.number().int()).optional().describe("Radarr movie ids"),
       movie_file_ids: z.array(z.number().int()).optional().describe("Specific movie file ids"),
     },
+    READ,
     async ({ movie_ids, movie_file_ids }) => {
       try {
         const files = (await client.fetch(
@@ -65,6 +67,7 @@ export function registerFileTools(server: McpServer, client: RadarrClient) {
     "delete_movie_files",
     "Delete movie files from disk. The movies stay in the library and, if monitored, become wanted again.",
     { ids: z.array(z.number().int()).min(1).describe("Movie file ids (from list_movie_files)") },
+    DESTRUCTIVE,
     async ({ ids }) => {
       try {
         if (ids.length === 1) {
@@ -81,6 +84,7 @@ export function registerFileTools(server: McpServer, client: RadarrClient) {
     "get_rename_preview",
     "Preview how files would be renamed under the current naming configuration. Returns only files whose name would change; run the RenameFiles command to apply.",
     { movie_ids: z.array(z.number().int()).min(1).describe("Radarr movie ids to preview") },
+    READ,
     async ({ movie_ids }) => {
       try {
         const rows = (await client.fetch(`/api/v3/rename${buildQS({ movieId: movie_ids })}`)) as {
@@ -108,6 +112,7 @@ export function registerFileTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Hide files already in the library (default true)"),
     },
+    READ,
     async ({ folder, download_id, movie_id, filter_existing_files }) => {
       try {
         const qs = buildQS({

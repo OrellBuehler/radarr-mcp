@@ -10,6 +10,7 @@ import {
   type QueueItem,
 } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, READ, WRITE } from "./annotations.js";
 
 const QUEUE_STATUS = [
   "unknown",
@@ -44,6 +45,7 @@ export function registerQueueTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Include downloads Radarr could not map to a movie (default true)"),
     },
+    READ,
     async ({
       page,
       page_size,
@@ -78,6 +80,7 @@ export function registerQueueTools(server: McpServer, client: RadarrClient) {
     "get_queue_status",
     "Get queue counters: total, errors, warnings, unknown items and whether anything needs manual import. Cheap health check before pulling the full queue.",
     {},
+    READ,
     async () => {
       try {
         return ok(await client.fetch("/api/v3/queue/status"));
@@ -89,13 +92,13 @@ export function registerQueueTools(server: McpServer, client: RadarrClient) {
 
   server.tool(
     "remove_queue_items",
-    "Remove one or more items from the queue. By default the download is also removed from the download client; set blocklist to stop the same release being grabbed again, and skip_redownload to not search for a replacement.",
+    "Remove one or more items from the queue. By default the download stays in the download client; set remove_from_client to also delete it (and its data) there, blocklist to stop the same release being grabbed again, and skip_redownload to not search for a replacement.",
     {
       ids: z.array(z.number().int()).min(1).describe("Queue item ids (from get_queue)"),
       remove_from_client: z
         .boolean()
         .optional()
-        .describe("Also remove the download from the download client (default true)"),
+        .describe("Also remove the download and its data from the download client (default false)"),
       blocklist: z
         .boolean()
         .optional()
@@ -109,10 +112,11 @@ export function registerQueueTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Move the download to the post-import category instead of deleting it"),
     },
+    DESTRUCTIVE,
     async ({ ids, remove_from_client, blocklist, skip_redownload, change_category }) => {
       try {
         const qs = buildQS({
-          removeFromClient: remove_from_client ?? true,
+          removeFromClient: remove_from_client ?? false,
           blocklist: blocklist ?? false,
           skipRedownload: skip_redownload ?? false,
           changeCategory: change_category,
@@ -131,6 +135,7 @@ export function registerQueueTools(server: McpServer, client: RadarrClient) {
     "grab_queue_items",
     "Force Radarr to import queue items that are waiting in the 'pending' state (for example releases held by a delay profile).",
     { ids: z.array(z.number().int()).min(1).describe("Queue item ids (from get_queue)") },
+    WRITE,
     async ({ ids }) => {
       try {
         if (ids.length === 1) {

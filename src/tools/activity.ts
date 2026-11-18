@@ -10,6 +10,7 @@ import {
   type Paged,
 } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE, DESTRUCTIVE_ONCE, READ } from "./annotations.js";
 
 const EVENT_TYPES = [
   "unknown",
@@ -93,6 +94,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
       unmonitored: z.boolean().optional().describe("Include unmonitored movies (default false)"),
       tags: z.string().optional().describe("Comma-separated tag ids to filter by"),
     },
+    READ,
     async ({ start, end, unmonitored, tags }) => {
       try {
         const movies = (await client.fetch(
@@ -125,6 +127,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
       movie_ids: z.array(z.number().int()).optional().describe("Only these movie ids"),
       download_id: z.string().optional().describe("Only records for this download id"),
     },
+    READ,
     async ({ page, page_size, sort_key, sort_direction, event_type, movie_ids, download_id }) => {
       try {
         const qs = buildQS({
@@ -152,6 +155,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
       movie_id: z.number().int().describe("Radarr movie id"),
       event_type: z.enum(EVENT_TYPES).optional().describe("Only this event type"),
     },
+    READ,
     async ({ movie_id, event_type }) => {
       try {
         const records = (await client.fetch(
@@ -168,6 +172,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
     "mark_history_failed",
     "Mark a grabbed history record as failed. Radarr blocklists the release and, if the movie is still monitored, searches for a replacement.",
     { id: z.number().int().describe("History record id (from get_history)") },
+    DESTRUCTIVE_ONCE,
     async ({ id }) => {
       try {
         return ok(await client.fetch(`/api/v3/history/failed/${id}`, { method: "POST" }));
@@ -191,6 +196,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
         .optional()
         .describe("Only monitored (true, the default) or unmonitored (false) movies"),
     },
+    READ,
     async ({ kind, page, page_size, sort_key, sort_direction, monitored }) => {
       try {
         const qs = buildQS({
@@ -218,6 +224,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
       sort_direction: z.enum(["default", "ascending", "descending"]).optional(),
       movie_ids: z.array(z.number().int()).optional().describe("Only these movie ids"),
     },
+    READ,
     async ({ page, page_size, sort_key, sort_direction, movie_ids }) => {
       try {
         const qs = buildQS({
@@ -239,6 +246,7 @@ export function registerActivityTools(server: McpServer, client: RadarrClient) {
     "remove_blocklist_items",
     "Remove entries from the blocklist so those releases can be grabbed again.",
     { ids: z.array(z.number().int()).min(1).describe("Blocklist ids (from get_blocklist)") },
+    DESTRUCTIVE,
     async ({ ids }) => {
       try {
         if (ids.length === 1) {

@@ -53,12 +53,14 @@ claude mcp add radarr \
 
 See [Usage with Claude Code](#usage-with-claude-code) for the equivalent JSON config. For any other
 MCP client, run the package directly — `npx -y @orellbuehler/radarr-mcp` with `RADARR_URL` and
-`RADARR_API_KEY` set in the environment. Requires Node.js 20+.
+`RADARR_API_KEY` set in the environment. Requires Node.js 22+.
 
 ## Getting an API key
 
 `RADARR_API_KEY` is Radarr's own API key: **Settings → General → Security → API Key**. It grants
-full access to the instance, so treat it like a password.
+full access to the instance, so treat it like a password. The server sends it only to the
+configured host: redirects are refused rather than followed, so point `RADARR_URL` at the final URL
+(for example `https://` if your reverse proxy redirects from `http://`).
 
 ## Configuration
 
@@ -105,12 +107,12 @@ the API key is missing.
 
 ### Queue
 
-| Tool                 | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `get_queue`          | Paged queue with progress, warnings and import errors            |
-| `get_queue_status`   | Queue counters (errors, warnings, unknown items)                 |
-| `remove_queue_items` | Remove items, optionally blocklisting or skipping the redownload |
-| `grab_queue_items`   | Force pending items through                                      |
+| Tool                 | Description                                                                 |
+| -------------------- | --------------------------------------------------------------------------- |
+| `get_queue`          | Paged queue with progress, warnings and import errors                       |
+| `get_queue_status`   | Queue counters (errors, warnings, unknown items)                            |
+| `remove_queue_items` | Remove items; removing from the download client and blocklisting are opt-in |
+| `grab_queue_items`   | Force pending items through                                                 |
 
 ### Activity
 
@@ -134,32 +136,32 @@ the API key is missing.
 
 ### Settings
 
-| Tool                                       | Description                                           |
-| ------------------------------------------ | ----------------------------------------------------- |
-| `list_quality_profiles`                    | Profiles with cutoff and allowed qualities            |
-| `get_quality_profile`                      | One profile in full                                   |
-| `list_root_folders`                        | Root folders with free space and accessibility        |
-| `list_tags`                                | Tags, optionally with what uses them                  |
-| `create_tag` / `update_tag` / `delete_tag` | Tag management                                        |
-| `list_custom_formats`                      | Custom formats and their specifications               |
-| `list_quality_definitions`                 | Size limits per quality                               |
-| `list_languages`                           | Language ids                                          |
-| `get_config`                               | Read a settings section (naming, media management, …) |
-| `get_naming_examples`                      | Example names for the current naming config           |
+| Tool                                       | Description                                                             |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| `list_quality_profiles`                    | Profiles with cutoff and allowed qualities                              |
+| `get_quality_profile`                      | One profile in full                                                     |
+| `list_root_folders`                        | Root folders with free space and accessibility                          |
+| `list_tags`                                | Tags, optionally with what uses them                                    |
+| `create_tag` / `update_tag` / `delete_tag` | Tag management                                                          |
+| `list_custom_formats`                      | Custom formats and their specifications                                 |
+| `list_quality_definitions`                 | Size limits per quality                                                 |
+| `list_languages`                           | Language ids                                                            |
+| `get_config`                               | Read a settings section (naming, media management, …), secrets redacted |
+| `get_naming_examples`                      | Example names for the current naming config                             |
 
 ### Providers
 
-| Tool                        | Description                                                      |
-| --------------------------- | ---------------------------------------------------------------- |
-| `list_indexers`             | Indexers with protocol, priority and settings (secrets redacted) |
-| `test_indexers`             | Test one or all indexers                                         |
-| `list_download_clients`     | Download clients (secrets redacted)                              |
-| `test_download_clients`     | Test one or all download clients                                 |
-| `list_import_lists`         | Import lists with their monitor and profile settings             |
-| `test_import_lists`         | Test one or all import lists                                     |
-| `discover_movies`           | Import list suggestions plus recommended/trending/popular feeds  |
-| `list_notifications`        | Notification connections and their events                        |
-| `list_remote_path_mappings` | Download client path → Radarr path mappings                      |
+| Tool                        | Description                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `list_indexers`             | Indexers with protocol, priority and settings (secrets redacted)              |
+| `test_indexers`             | Test one or all indexers                                                      |
+| `list_download_clients`     | Download clients (secrets redacted)                                           |
+| `test_download_clients`     | Test one or all download clients                                              |
+| `list_import_lists`         | Import lists with their monitor and profile settings                          |
+| `test_import_lists`         | Test one or all import lists                                                  |
+| `discover_movies`           | Import list suggestions plus recommended/trending/popular feeds               |
+| `list_notifications`        | Notification connections and their events (secrets and webhook URLs redacted) |
+| `list_remote_path_mappings` | Download client path → Radarr path mappings                                   |
 
 ### Collections and exclusions
 
@@ -187,11 +189,18 @@ the API key is missing.
 The server manages the library, not the host. There is deliberately no tool for restarting or
 shutting down Radarr, restoring or deleting backups, deleting log files, or writing indexer,
 download client and notification definitions — those stay in the Radarr UI. Provider settings are
-readable and testable, and API keys and passwords are redacted from the responses.
+readable and testable, and secrets are redacted from the responses: API keys, usernames, passwords,
+passkeys, cookies, tokens, webhook URLs and credentials embedded in URLs (userinfo, `apikey=`/
+`passkey=`-style query parameters, key-like path segments). `get_config` redacts the same way, so the
+`host` section never returns Radarr's own API key or passwords. Redaction is best-effort pattern
+matching — review the output before sharing a transcript.
 
 Destructive library actions are available but never implicit: `delete_movie`, `delete_movies` and
-`remove_queue_items` default their `delete_files`/`blocklist` flags to off, and `run_command` only
-accepts commands from an allowlist.
+`remove_queue_items` default their `delete_files`/`remove_from_client`/`blocklist` flags to off, and
+`run_command` only accepts commands from an allowlist — a `name` passed through `params` is ignored.
+
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so clients
+can auto-approve reads and ask before deletes.
 
 ## Usage with Claude Code
 

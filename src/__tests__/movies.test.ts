@@ -7,7 +7,13 @@ type ToolHandler = (args: any) => Promise<{ content: { text: string }[]; isError
 function collectTools() {
   const tools = new Map<string, ToolHandler>();
   const server = {
-    tool: (name: string, _desc: string, _schema: unknown, handler: ToolHandler) => {
+    tool: (
+      name: string,
+      _desc: string,
+      _schema: unknown,
+      _annotations: unknown,
+      handler: ToolHandler,
+    ) => {
       tools.set(name, handler);
     },
   };

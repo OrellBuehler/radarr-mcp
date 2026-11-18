@@ -47,10 +47,12 @@ connects it over stdio. Every tool calls `client.fetch(...)` or `client.json(...
 - **`src/radarr/client.ts`** — `RadarrClient`, a thin `fetch` wrapper. Auth is the `X-Api-Key`
   header. `fetch()` returns JSON (or text; empty bodies become `{ success: true }`), `json()` is the
   body-carrying variant. Throws on non-2xx with the response body in the message. Default timeout is
-  30s because interactive indexer searches are slow.
+  30s because interactive indexer searches are slow. Requests use `redirect: "error"` so the API key
+  never follows a redirect to another host.
 - **`src/radarr/format.ts`** — shared helpers: `buildQS` (**arrays are repeated, not comma-joined** —
   Radarr expects `movieIds=1&movieIds=2`), `ok`/`err` (MCP content envelopes; `ok` passes strings
-  through unquoted), and the `summarize*` functions plus `summarizePaged`.
+  through unquoted), the `summarize*` functions plus `summarizePaged`, and the redaction helpers
+  (`SECRET`, `redactUrl`, `redactValue`, `redactSecrets`).
 - **`src/tools/*.ts`** — each exports a `register*Tools(server, client)` function that `server.ts`
   calls. Groups: `movies`, `files`, `queue`, `releases`, `activity` (calendar/history/wanted/
   blocklist), `commands`, `settings` (profiles, tags, config sections), `providers` (indexers,
@@ -60,9 +62,11 @@ connects it over stdio. Every tool calls `client.fetch(...)` or `client.json(...
 
 - **ESM with Node16 module resolution: all relative imports must end in `.js`** (e.g.
   `import { ok } from "../radarr/format.js"`), even though the source is `.ts`.
-- **Tool handler shape:** `server.tool(name, description, zodShape, async (args) => { try { return
-ok(await client.fetch(...)); } catch (e) { return err(e); } })`. The third argument is a raw Zod
-  shape object (`{}` when there are no params). Match this try/catch-`ok`/`err` style exactly.
+- **Tool handler shape:** `server.tool(name, description, zodShape, annotations, async (args) => {
+try { return ok(await client.fetch(...)); } catch (e) { return err(e); } })`. The third argument is a
+  raw Zod shape object (`{}` when there are no params), the fourth one of the presets in
+  `src/tools/annotations.ts` (`READ`, `WRITE`, `UPDATE`, `DESTRUCTIVE`, `DESTRUCTIVE_ONCE`);
+  `server.test.ts` fails if a tool has none. Match this try/catch-`ok`/`err` style exactly.
 - **Tool arguments are snake_case, Radarr's JSON is camelCase.** Map at the boundary in the handler.
 - **Summarize list responses.** Radarr returns the entire library from `/api/v3/movie` and embeds a
   full `MovieResource` in queue, history and blocklist records; never pass those through raw. Add a
@@ -75,9 +79,12 @@ ok(await client.fetch(...)); } catch (e) { return err(e); } })`. The third argum
 - **Scope is the library, not the host.** No restart/shutdown, no backup restore or delete, no log
   file deletion, and no create/update/delete for indexers, download clients or notifications — those
   are read-and-test only, and `safeFields` in `src/tools/providers.ts` redacts any field whose
-  `privacy` is not `normal` or whose name matches the `SECRET` pattern. `run_command` is limited to
-  the `COMMANDS` allowlist in `src/tools/commands.ts`. Destructive library tools exist but default
-  their `delete_files`/`blocklist`/`addImportExclusion` flags to false.
+  `privacy` is not `normal` or whose name matches the `SECRET` pattern, scrubs credentials out of
+  URL values, and cuts notification URLs down to their origin. `get_config` runs every section
+  through `redactSecrets`. `run_command` is limited to the `COMMANDS` allowlist in
+  `src/tools/commands.ts`, and the allowlisted name always overrides `params`. Destructive library
+  tools exist but default their `delete_files`/`remove_from_client`/`blocklist`/`addImportExclusion`
+  flags to false.
 - **Secrets:** the repo is public. Never log the API key; only read it from env. Tests use fake
   credentials.
 - `radarr-openapi.json` (vendored from the Radarr `develop` branch, `npm run spec:update`) is the
@@ -86,7 +93,7 @@ ok(await client.fetch(...)); } catch (e) { return err(e); } })`. The third argum
 ## Tests
 
 Tests live in `src/__tests__/*.test.ts`. Tool tests pass a fake
-`{ tool: (name, desc, schema, handler) => ... }` server to the `register*Tools` function to capture
+`{ tool: (name, desc, schema, annotations, handler) => ... }` server to the `register*Tools` function to capture
 handlers, then stub global `fetch` to assert the exact request URL, method and body plus the output
 shaping. `config.ts` reads env at import time and exits if it's missing, so `config.test.ts`
 `vi.stubEnv(...)` then dynamically `import()`s it, and resets modules between cases.

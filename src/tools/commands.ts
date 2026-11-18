@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../radarr/format.js";
 import type { RadarrClient } from "../radarr/client.js";
+import { DESTRUCTIVE_ONCE, READ } from "./annotations.js";
 
 export const COMMANDS = [
   "MoviesSearch",
@@ -22,6 +23,8 @@ export const COMMANDS = [
   "ClearBlocklist",
   "Backup",
 ] as const;
+
+const RESERVED = new Set(["name", "commandname"]);
 
 interface CommandRecord {
   id?: number;
@@ -70,12 +73,16 @@ export function registerCommandTools(server: McpServer, client: RadarrClient) {
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-          "Extra command body fields, merged as-is (e.g. { files: [1, 2] } for RenameFiles)",
+          "Extra command body fields (e.g. { files: [1, 2] } for RenameFiles). A 'name' key is ignored: the command is always the allowlisted name",
         ),
     },
+    DESTRUCTIVE_ONCE,
     async ({ name, movie_ids, params }) => {
       try {
-        const body: Record<string, unknown> = { name, ...(params ?? {}) };
+        const extra = Object.fromEntries(
+          Object.entries(params ?? {}).filter(([key]) => !RESERVED.has(key.toLowerCase())),
+        );
+        const body: Record<string, unknown> = { ...extra, name };
         if (movie_ids?.length) {
           body.movieIds = movie_ids;
           if (name === "RescanMovie" || name === "RenameFiles") body.movieId = movie_ids[0];
@@ -92,6 +99,7 @@ export function registerCommandTools(server: McpServer, client: RadarrClient) {
     "list_commands",
     "List queued, started and recently finished commands with their status and result. Use it to check whether a search or refresh has completed.",
     {},
+    READ,
     async () => {
       try {
         const rows = (await client.fetch("/api/v3/command")) as CommandRecord[];
@@ -106,6 +114,7 @@ export function registerCommandTools(server: McpServer, client: RadarrClient) {
     "get_command",
     "Get the status of one command by id, including its result and any exception.",
     { id: z.number().int().describe("Command id returned by run_command") },
+    READ,
     async ({ id }) => {
       try {
         return ok(summarizeCommand((await client.fetch(`/api/v3/command/${id}`)) as CommandRecord));
