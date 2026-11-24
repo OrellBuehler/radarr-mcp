@@ -144,6 +144,8 @@ the API key is missing.
 | `list_tags`                                | Tags, optionally with what uses them                                    |
 | `create_tag` / `update_tag` / `delete_tag` | Tag management                                                          |
 | `list_custom_formats`                      | Custom formats and their specifications                                 |
+| `create_custom_format`                     | Create a custom format from specifications                              |
+| `set_format_scores`                        | Set custom format scores and upgrade settings on a profile              |
 | `list_quality_definitions`                 | Size limits per quality                                                 |
 | `list_languages`                           | Language ids                                                            |
 | `get_config`                               | Read a settings section (naming, media management, …), secrets redacted |

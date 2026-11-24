@@ -200,6 +200,74 @@ describe("settings tools", () => {
     });
   });
 
+  it("create_custom_format maps specifications to Radarr fields", async () => {
+    mockFetch.mockResolvedValueOnce(mockJson({ id: 60 }));
+    await tools.get("create_custom_format")!({
+      name: "x265",
+      specifications: [
+        { name: "HEVC", implementation: "ReleaseTitleSpecification", value: "x265" },
+      ],
+    });
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://radarr:7878/api/v3/customformat");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      name: "x265",
+      includeCustomFormatWhenRenaming: false,
+      specifications: [
+        {
+          name: "HEVC",
+          implementation: "ReleaseTitleSpecification",
+          negate: false,
+          required: true,
+          fields: [{ name: "value", value: "x265" }],
+        },
+      ],
+    });
+  });
+
+  it("set_format_scores merges scores into the full profile", async () => {
+    const profile = {
+      id: 7,
+      name: "HD",
+      cutoff: 7,
+      items: [],
+      upgradeAllowed: true,
+      minUpgradeFormatScore: 1,
+      formatItems: [
+        { format: 1, name: "Tier 01", score: 1800 },
+        { format: 34, name: "x265", score: 500 },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce(mockJson(profile));
+    mockFetch.mockImplementationOnce((_url, init) =>
+      Promise.resolve(mockJson(JSON.parse(init.body))),
+    );
+    const res = await tools.get("set_format_scores")!({
+      profile_id: 7,
+      scores: [
+        { format_id: 34, score: 3000 },
+        { format_id: 60, score: 100 },
+      ],
+      min_upgrade_format_score: 10,
+    });
+    const [url, init] = mockFetch.mock.calls[1];
+    expect(url).toBe("http://radarr:7878/api/v3/qualityprofile/7");
+    expect(init.method).toBe("PUT");
+    const body = JSON.parse(init.body);
+    expect(body.formatItems).toEqual([
+      { format: 1, name: "Tier 01", score: 1800 },
+      { format: 34, name: "x265", score: 3000 },
+      { format: 60, score: 100 },
+    ]);
+    expect(body.minUpgradeFormatScore).toBe(10);
+    expect(body.upgradeAllowed).toBe(true);
+    expect(JSON.parse(res.content[0].text).scores).toEqual([
+      { format: 34, name: "x265", score: 3000 },
+      { format: 60, score: 100 },
+    ]);
+  });
+
   it("list_tags switches to the detail endpoint", async () => {
     mockFetch.mockResolvedValueOnce(mockJson([]));
     await tools.get("list_tags")!({ details: true });
