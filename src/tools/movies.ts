@@ -292,7 +292,8 @@ export function registerMovieTools(server: McpServer, client: RadarrClient) {
           ...(tags !== undefined ? { tags, applyTags: apply_tags ?? "add" } : {}),
           ...(move_files !== undefined ? { moveFiles: move_files } : {}),
         };
-        return ok(await client.json("/api/v3/movie/editor", "PUT", body));
+        const rows = (await client.json("/api/v3/movie/editor", "PUT", body)) as Movie[];
+        return ok({ updated: rows.length, movies: rows.slice(0, 25).map(summarizeMovie) });
       } catch (e) {
         return err(e);
       }

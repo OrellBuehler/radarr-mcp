@@ -167,6 +167,21 @@ describe("movie tools", () => {
     expect(JSON.parse(init.body)).toEqual({ movieIds: [1, 2], tags: [7], applyTags: "add" });
   });
 
+  it("edit_movies summarizes the edited movies instead of echoing them", async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      id: i + 1,
+      title: `Movie ${i + 1}`,
+      qualityProfileId: 11,
+      images: [{ url: "x" }],
+    }));
+    mockFetch.mockResolvedValueOnce(mockJson(rows));
+    const res = await tools.get("edit_movies")!({ movie_ids: [1], quality_profile_id: 11 });
+    const out = JSON.parse(res.content[0].text);
+    expect(out.updated).toBe(30);
+    expect(out.movies).toHaveLength(25);
+    expect(out.movies[0].images).toBeUndefined();
+  });
+
   it("delete_movies posts the bulk editor payload", async () => {
     mockFetch.mockResolvedValueOnce(mockJson({}));
     await tools.get("delete_movies")!({ movie_ids: [1, 2], delete_files: true });
