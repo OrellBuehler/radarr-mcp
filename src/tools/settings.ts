@@ -183,6 +183,132 @@ export function registerSettingsTools(server: McpServer, client: RadarrClient) {
   );
 
   server.tool(
+    "create_custom_format",
+    "Create a custom format from one or more specifications. Radarr adds it to every quality profile with score 0; set its score per profile with set_format_scores.",
+    {
+      name: z.string().describe("Custom format name"),
+      include_when_renaming: z
+        .boolean()
+        .optional()
+        .describe("Expose the format to the {Custom Formats} naming token (default false)"),
+      specifications: z
+        .array(
+          z.object({
+            name: z.string().describe("Specification name"),
+            implementation: z
+              .string()
+              .describe(
+                "Specification type, e.g. 'ReleaseTitleSpecification' (regex), 'ResolutionSpecification', 'SourceSpecification'",
+              ),
+            value: z
+              .union([z.string(), z.number()])
+              .describe("The specification's value: a regex, or the resolution/source enum value"),
+            negate: z.boolean().optional().describe("Match when the condition is false"),
+            required: z
+              .boolean()
+              .optional()
+              .describe("Must match (default true); non-required specs of one type are OR-ed"),
+          }),
+        )
+        .min(1)
+        .describe("Conditions the release must meet"),
+    },
+    WRITE,
+    async ({ name, include_when_renaming, specifications }) => {
+      try {
+        return ok(
+          await client.json("/api/v3/customformat", "POST", {
+            name,
+            includeCustomFormatWhenRenaming: include_when_renaming ?? false,
+            specifications: specifications.map((s) => ({
+              name: s.name,
+              implementation: s.implementation,
+              negate: s.negate ?? false,
+              required: s.required ?? true,
+              fields: [{ name: "value", value: s.value }],
+            })),
+          }),
+        );
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
+    "set_format_scores",
+    "Set custom format scores on one quality profile, optionally with its upgrade settings. Scores not listed stay as they are. Raising a score can make Radarr upgrade existing files.",
+    {
+      profile_id: z.number().int().describe("Quality profile id"),
+      scores: z
+        .array(
+          z.object({
+            format_id: z.number().int().describe("Custom format id"),
+            score: z.number().int().describe("Score for releases matching the format"),
+          }),
+        )
+        .describe("Format scores to set"),
+      upgrade_allowed: z.boolean().optional().describe("Allow upgrading existing files"),
+      min_format_score: z
+        .number()
+        .int()
+        .optional()
+        .describe("Minimum custom format score a release needs"),
+      cutoff_format_score: z
+        .number()
+        .int()
+        .optional()
+        .describe("Stop upgrading once a file reaches this score"),
+      min_upgrade_format_score: z
+        .number()
+        .int()
+        .optional()
+        .describe("Minimum score gain for an upgrade"),
+    },
+    UPDATE,
+    async ({
+      profile_id,
+      scores,
+      upgrade_allowed,
+      min_format_score,
+      cutoff_format_score,
+      min_upgrade_format_score,
+    }) => {
+      try {
+        const profile = (await client.fetch(`/api/v3/qualityprofile/${profile_id}`)) as Record<
+          string,
+          unknown
+        > & { formatItems?: { format: number; name?: string; score: number }[] };
+        const items = [...(profile.formatItems ?? [])];
+        for (const { format_id, score } of scores) {
+          const existing = items.find((i) => i.format === format_id);
+          if (existing) existing.score = score;
+          else items.push({ format: format_id, score });
+        }
+        const body: Record<string, unknown> = { ...profile, formatItems: items };
+        if (upgrade_allowed !== undefined) body.upgradeAllowed = upgrade_allowed;
+        if (min_format_score !== undefined) body.minFormatScore = min_format_score;
+        if (cutoff_format_score !== undefined) body.cutoffFormatScore = cutoff_format_score;
+        if (min_upgrade_format_score !== undefined)
+          body.minUpgradeFormatScore = min_upgrade_format_score;
+        const updated = (await client.json(
+          `/api/v3/qualityprofile/${profile_id}`,
+          "PUT",
+          body,
+        )) as QualityProfile & { minUpgradeFormatScore?: number; formatItems?: typeof items };
+        const ids = new Set(scores.map((s) => s.format_id));
+        return ok({
+          ...summarizeProfile(updated),
+          minUpgradeFormatScore: updated.minUpgradeFormatScore,
+          scores: (updated.formatItems ?? []).filter((i) => ids.has(i.format)),
+        });
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.tool(
     "list_quality_definitions",
     "List quality definitions with their size limits in MB/minute. These are what reject a release as too small or too large.",
     {},
